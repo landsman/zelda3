@@ -55,6 +55,7 @@ typedef struct Config {
   bool display_perf_title;
   bool enable_msu;
   bool disable_frame_delay;
+  bool bilinear_filtering;
   uint32 features0;
 
   const char *link_graphics;

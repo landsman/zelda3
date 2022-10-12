@@ -280,6 +280,8 @@ int main(int argc, char** argv) {
   vita2d_init();
   vita2d_texture_set_alloc_memblock_type(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW);
   tex_buffer = vita2d_create_empty_texture_format(g_snes_width * 2, g_snes_height * 2, SCE_GXM_TEXTURE_FORMAT_X8U8U8U8_1RGB);
+  if (g_config.bilinear_filtering)
+    vita2d_texture_set_filters(tex_buffer, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
   if(SDL_Init(SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
 #else
   if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
@@ -577,13 +579,13 @@ static void RenderScreen(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture
     else
       vita2d_draw_texture_scale(tex_buffer, 0, 0, 960.0f / (float)g_snes_width, 544.0f / (float)g_snes_height);
   } else {
-	if (hq) {
-	  float scale = 272.0f / (float)g_snes_height;
+    if (hq) {
+      float scale = 272.0f / (float)g_snes_height;
       vita2d_draw_texture_scale(tex_buffer, (960 - g_snes_width * scale) / 2, 0, scale, scale);
     } else {
       float scale = 544.0f / (float)g_snes_height;
       vita2d_draw_texture_scale(tex_buffer, (960 - g_snes_width * scale) / 2, 0, scale, scale);
-	}
+    }
   }
   vita2d_end_drawing();
   vita2d_wait_rendering_done();
