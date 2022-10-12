@@ -13,6 +13,12 @@
 #include <unistd.h>
 #endif
 
+#ifdef __vita__
+#include <vitasdk.h>
+#include <vita2d.h>
+vita2d_texture *tex_buffer = NULL;
+#endif
+
 #include "snes/ppu.h"
 
 #include "types.h"
@@ -25,6 +31,27 @@
 #include "assets.h"
 #include "load_gfx.h"
 
+#ifdef __vita__
+long sysconf(int name) {
+	return 0;
+}
+
+int _newlib_heap_size_user = 128 * 1024 * 1024;
+
+int __wrap_mkdir(const char *fname, mode_t mode) {
+	printf("mkdir %s\n", fname);
+	char patched_fname[256];
+	sprintf(patched_fname, "ux0:data/zelda3/%s", fname);
+	return __real_mkdir(patched_fname, mode);
+}
+
+FILE *__wrap_fopen(char *fname, char *mode) {
+	printf("fopen %s\n", fname);
+	char patched_fname[256];
+	sprintf(patched_fname, "ux0:data/zelda3/%s", fname);
+	return __real_fopen(patched_fname, mode);
+}
+#endif
 
 // Forwards
 static bool LoadRom(const char *filename);
@@ -243,7 +270,14 @@ int main(int argc, char** argv) {
     g_config.audio_samples = kDefaultSamples;
 
   // set up SDL
+#ifdef __vita__
+  vita2d_init();
+  vita2d_texture_set_alloc_memblock_type(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW);
+  tex_buffer = vita2d_create_empty_texture_format(g_snes_width * 2, g_snes_height * 2, SCE_GXM_TEXTURE_FORMAT_X8U8U8U8_1RGB);
+  if(SDL_Init(SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
+#else
   if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
+#endif
     printf("Failed to init SDL: %s\n", SDL_GetError());
     return 1;
   }
@@ -259,6 +293,7 @@ int main(int argc, char** argv) {
   }
   g_window = window;
   SDL_SetWindowHitTest(window, HitTestCallback, NULL);
+#ifndef __vita__
   SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
   if(renderer == NULL) {
     printf("Failed to create renderer: %s\n", SDL_GetError());
@@ -281,7 +316,10 @@ int main(int argc, char** argv) {
     return 1;
   }
   SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
-
+#else
+  SDL_Renderer *renderer;
+  SDL_Texture *texture;
+#endif
   SDL_AudioDeviceID device;
   SDL_AudioSpec want = { 0 }, have;
   g_audio_mutex = SDL_CreateMutex();
@@ -302,10 +340,10 @@ int main(int argc, char** argv) {
     g_frames_per_block = (534 * have.freq) / 32000;
     g_audiobuffer = malloc(g_frames_per_block * have.channels * sizeof(int16));
   }
-
+#ifndef __vita__
   if (argc >= 2 && !g_run_without_emu)
     LoadRom(argv[1]);
-
+#endif
 #if defined(_WIN32)
   _mkdir("saves");
 #else
@@ -393,7 +431,9 @@ int main(int argc, char** argv) {
     }
 
     RenderScreen(window, renderer, texture, (g_win_flags & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0);
-    SDL_RenderPresent(renderer); // vsyncs to 60 FPS?
+#ifndef __vita__    
+	SDL_RenderPresent(renderer); // vsyncs to 60 FPS?
+#endif
 
     // if vsync isn't working, delay manually
     curTick = SDL_GetTicks();
@@ -481,6 +521,7 @@ static void RenderNumber(uint8 *dst, size_t pitch, int n, bool big) {
 }
 
 static void RenderScreen(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *texture, bool fullscreen) {
+#ifndef __vita__
   uint8* pixels = NULL;
   int pitch = 0;
   uint64 t0 = SDL_GetPerformanceCounter();
@@ -498,6 +539,7 @@ static void RenderScreen(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture
     snprintf(title, sizeof(title), "%s | FPS: %d", kWindowTitle, g_curr_fps);
     SDL_SetWindowTitle(window, title);
   }
+
   uint64 t2 = SDL_GetPerformanceCounter();
   SDL_UnlockTexture(texture);
   uint64 t3 = SDL_GetPerformanceCounter();
@@ -515,7 +557,22 @@ static void RenderScreen(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture
     (t4 - t3) * f,
     (t5 - t4) * f
   );
-
+#else
+  uint8* pixels = vita2d_texture_get_datap(tex_buffer);
+  int pitch = vita2d_texture_get_stride(tex_buffer);
+  bool hq = RenderScreenWithPerf(pixels, pitch, g_ppu_render_flags);
+  if (g_display_perf) {
+    RenderNumber(pixels + (pitch * 2 << hq), pitch, g_curr_fps, hq);
+  }
+  vita2d_start_drawing();
+  if (hq)
+    vita2d_draw_texture_scale(tex_buffer, 0, 0, 480.0f / (float)g_snes_width, 272.0f / (float)g_snes_height);
+  else
+    vita2d_draw_texture_scale(tex_buffer, 0, 0, 960.0f / (float)g_snes_width, 544.0f / (float)g_snes_height);
+  vita2d_end_drawing();
+  vita2d_wait_rendering_done();
+  vita2d_swap_buffers();
+#endif
 
 }
 

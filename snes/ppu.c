@@ -13,7 +13,7 @@ static const uint8 kSpriteSizes[8][2] = {
   {16, 64}, {32, 64}, {16, 32}, {16, 32}
 };
 
-static void ppu_handlePixel(Ppu* ppu, int x, int y);
+static inline void ppu_handlePixel(Ppu* ppu, int x, int y);
 static int ppu_getPixel(Ppu* ppu, int x, int y, bool sub, int* r, int* g, int* b);
 static int ppu_getPixelForBgLayer(Ppu *ppu, int x, int y, int layer, bool priority);
 static void ppu_calculateMode7Starts(Ppu* ppu, int y);
@@ -951,7 +951,7 @@ static NOINLINE void PpuDrawWholeLine(Ppu *ppu, uint y) {
   memcpy((uint8*)dst_org + ppu->renderPitch, dst_org, (ppu->extraLeftRight * 2 + 256) * 2 * sizeof(uint32));
 }
 
-static void ppu_handlePixel(Ppu* ppu, int x, int y) {
+static inline void ppu_handlePixel(Ppu* ppu, int x, int y) {
   int r = 0, r2 = 0;
   int g = 0, g2 = 0;
   int b = 0, b2 = 0;
@@ -1316,7 +1316,7 @@ static bool ppu_evaluateSprites(Ppu* ppu, int line) {
   return (tilesLeft != tilesLeftOrg);
 }
 
-uint8_t ppu_read(Ppu* ppu, uint8_t adr) {
+inline uint8_t ppu_read(Ppu* ppu, uint8_t adr) {
   switch (adr) {
   case 0x34:
   case 0x35:
@@ -1328,7 +1328,7 @@ uint8_t ppu_read(Ppu* ppu, uint8_t adr) {
   return 0xff;
 }
 
-void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val) {
+inline void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val) {
   switch(adr) {
     case 0x00: {  // INIDISP
       ppu->brightness = val & 0xf;

@@ -97,7 +97,7 @@ void ZeldaResetApuQueue() {
 }
 
 
-uint8_t zelda_read_apui00() {
+inline uint8_t zelda_read_apui00() {
   // This needs to be here because the ancilla code reads
   // from the apu and we don't want to make the core code
   // dependent on the apu timings, so relocated this value
@@ -105,16 +105,16 @@ uint8_t zelda_read_apui00() {
   return g_ram[kRam_APUI00];
 }
 
-uint8_t zelda_apu_read(uint32_t adr) {
+inline uint8_t zelda_apu_read(uint32_t adr) {
   return g_zenv.player->port_to_snes[adr & 0x3];
 }
 
-void zelda_ppu_write(uint32_t adr, uint8_t val) {
+inline void zelda_ppu_write(uint32_t adr, uint8_t val) {
   assert(adr >= INIDISP && adr <= STAT78);
   ppu_write(g_zenv.ppu, (uint8)adr, val);
 }
 
-void zelda_ppu_write_word(uint32_t adr, uint16_t val) {
+inline void zelda_ppu_write_word(uint32_t adr, uint16_t val) {
   zelda_ppu_write(adr, val);
   zelda_ppu_write(adr + 1, val >> 8);
 }
