@@ -28,11 +28,11 @@ all: $(TARGET).vpk
 $(TARGET).vpk: $(TARGET).velf
 	vita-make-fself -c -s $< eboot.bin
 	vita-mksfoex -s TITLE_ID=$(TITLE) "Zelda: A Link to the Past" param.sfo
-	vita-pack-vpk -s param.sfo -b build/eboot.bin \
-		--add build/sce_sys/icon0.png=sce_sys/icon0.png \
-		--add build/sce_sys/livearea/contents/bg.png=sce_sys/livearea/contents/bg.png \
-		--add build/sce_sys/livearea/contents/startup.png=sce_sys/livearea/contents/startup.png \
-		--add build/sce_sys/livearea/contents/template.xml=sce_sys/livearea/contents/template.xml \
+	vita-pack-vpk -s param.sfo -b eboot.bin \
+		--add icon0.png=sce_sys/icon0.png \
+		--add bg.png=sce_sys/livearea/contents/bg.png \
+		--add startup.png=sce_sys/livearea/contents/startup.png \
+		--add template.xml=sce_sys/livearea/contents/template.xml \
 		$(TARGET).vpk
 
 %.velf: %.elf
