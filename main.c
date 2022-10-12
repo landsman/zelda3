@@ -571,10 +571,20 @@ static void RenderScreen(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture
     RenderNumber(pixels + (pitch * 2 << hq), pitch, g_curr_fps, hq);
   }
   vita2d_start_drawing();
-  if (hq)
-    vita2d_draw_texture_scale(tex_buffer, 0, 0, 480.0f / (float)g_snes_width, 272.0f / (float)g_snes_height);
-  else
-    vita2d_draw_texture_scale(tex_buffer, 0, 0, 960.0f / (float)g_snes_width, 544.0f / (float)g_snes_height);
+  if (g_config.ignore_aspect_ratio) {
+    if (hq)
+      vita2d_draw_texture_scale(tex_buffer, 0, 0, 480.0f / (float)g_snes_width, 272.0f / (float)g_snes_height);
+    else
+      vita2d_draw_texture_scale(tex_buffer, 0, 0, 960.0f / (float)g_snes_width, 544.0f / (float)g_snes_height);
+  } else {
+	if (hq) {
+	  float scale = 272.0f / (float)g_snes_height;
+      vita2d_draw_texture_scale(tex_buffer, (960 - g_snes_width * scale) / 2, 0, scale, scale);
+    } else {
+      float scale = 544.0f / (float)g_snes_height;
+      vita2d_draw_texture_scale(tex_buffer, (960 - g_snes_width * scale) / 2, 0, scale, scale);
+	}
+  }
   vita2d_end_drawing();
   vita2d_wait_rendering_done();
   vita2d_swap_buffers();
