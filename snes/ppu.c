@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <assert.h>
 #include "ppu.h"
-#include "../types.h"
+#include "src/types.h"
 
 static const uint8 kSpriteSizes[8][2] = {
   {8, 16}, {8, 32}, {8, 64}, {16, 32},
@@ -122,10 +122,14 @@ void ppu_saveload(Ppu *ppu, SaveLoadFunc *func, void *ctx) {
   func(ctx, tmp, 123);
 }
 
-bool PpuBeginDrawing(Ppu *ppu, uint8_t *pixels, size_t pitch, uint32_t render_flags) {
+int PpuGetCurrentRenderScale(Ppu *ppu, uint32_t render_flags) {
+  bool hq = ppu->mode == 7 && !ppu->forcedBlank &&
+    (render_flags & (kPpuRenderFlags_4x4Mode7 | kPpuRenderFlags_NewRenderer)) == (kPpuRenderFlags_4x4Mode7 | kPpuRenderFlags_NewRenderer);
+  return hq ? 4 : 1;
+}
+
+void PpuBeginDrawing(Ppu *ppu, uint8_t *pixels, size_t pitch, uint32_t render_flags) {
   ppu->renderFlags = render_flags;
-  bool hq = ppu->mode == 7 && !ppu->forcedBlank && 
-      (ppu->renderFlags & (kPpuRenderFlags_4x4Mode7 | kPpuRenderFlags_NewRenderer)) == (kPpuRenderFlags_4x4Mode7 | kPpuRenderFlags_NewRenderer);
   ppu->renderPitch = (uint)pitch;
   ppu->renderBuffer = pixels;
 
@@ -140,14 +144,12 @@ bool PpuBeginDrawing(Ppu *ppu, uint8_t *pixels, size_t pitch, uint32_t render_fl
     memset(&ppu->brightnessMult[32], ppu->brightnessMult[31], 31);
   }
 
-  if (hq) {
+  if (PpuGetCurrentRenderScale(ppu, ppu->renderFlags) == 4) {
     for (int i = 0; i < 256; i++) {
       uint32 color = ppu->cgram[i];
       ppu->colorMapRgb[i] = ppu->brightnessMult[color & 0x1f] << 16 | ppu->brightnessMult[(color >> 5) & 0x1f] << 8 | ppu->brightnessMult[(color >> 10) & 0x1f];
     }
   }
-  
-  return hq;
 }
 
 static inline void ClearBackdrop(PpuPixelPrioBufs *buf) {
@@ -172,10 +174,7 @@ void ppu_runLine(Ppu *ppu, int line) {
 
     // outside of visible range?
     if (line >= 225 + ppu->extraBottomCur) {
-      uint8 *dst = &ppu->renderBuffer[(line - 1) * 2 * ppu->renderPitch];
-      size_t n = sizeof(uint32) * 2 * (256 + ppu->extraLeftRight * 2);
-      memset(dst, 0, n);
-      memset(dst + ppu->renderPitch, 0, n);
+      memset(&ppu->renderBuffer[(line - 1) * ppu->renderPitch], 0, sizeof(uint32) * (256 + ppu->extraLeftRight * 2));
       return;
     }
 
@@ -187,13 +186,11 @@ void ppu_runLine(Ppu *ppu, int line) {
       for (int x = 0; x < 256; x++)
         ppu_handlePixel(ppu, x, line);
 
-      uint8 *dst = ppu->renderBuffer + ((line - 1) * 2 * ppu->renderPitch);
-
+      uint8 *dst = ppu->renderBuffer + ((line - 1) * ppu->renderPitch);
       if (ppu->extraLeftRight != 0) {
-        memset(dst, 0, 2 * sizeof(uint32) * ppu->extraLeftRight);
-        memset(dst + 2 * sizeof(uint32) * (256 + ppu->extraLeftRight), 0, 2 * sizeof(uint32) * ppu->extraLeftRight);
+        memset(dst, 0, sizeof(uint32) * ppu->extraLeftRight);
+        memset(dst + sizeof(uint32) * (256 + ppu->extraLeftRight), 0, sizeof(uint32) * ppu->extraLeftRight);
       }
-      memcpy(dst + ppu->renderPitch, dst, 2 * sizeof(uint32) * (256 + ppu->extraLeftRight * 2));
     }
   }
 }
@@ -220,7 +217,6 @@ static void PpuWindows_Calc(PpuWindows *win, Ppu *ppu, uint layer) {
   int window_right = 256 + (layer != 2 ? ppu->extraRightCur : 0);
   win->edges[0] = - (layer != 2 ? ppu->extraLeftCur : 0);
   win->edges[1] = window_right;
-  uint8 window_bits = 0;
   uint i, j;
   int t;
   bool w1_ena = (winflags & kWindow1Enabled) && ppu->window1left <= ppu->window1right;
@@ -474,8 +470,8 @@ static void PpuDrawBackground_2bpp(Ppu *ppu, uint y, bool sub, uint layer, PpuZb
 
 // Draw a whole line of a 4bpp background layer into bgBuffers, with mosaic applied
 static void PpuDrawBackground_4bpp_mosaic(Ppu *ppu, uint y, bool sub, uint layer, PpuZbufType zhi, PpuZbufType zlo) {
-#define GET_PIXEL(i) pixel = (bits) & 1 | (bits >> 7) & 2 | (bits >> 14) & 4 | (bits >> 21) & 8
-#define GET_PIXEL_HFLIP(i) pixel = (bits >> 7) & 1 | (bits >> 14) & 2 | (bits >> 21) & 4 | (bits >> 28) & 8
+#define GET_PIXEL() pixel = (bits) & 1 | (bits >> 7) & 2 | (bits >> 14) & 4 | (bits >> 21) & 8
+#define GET_PIXEL_HFLIP() pixel = (bits >> 7) & 1 | (bits >> 14) & 2 | (bits >> 21) & 4 | (bits >> 28) & 8
 #define READ_BITS(ta, tile) (addr = &ppu->vram[((ta) + (tile) * 16) & 0x7fff], addr[0] | addr[8] << 16)
   enum { kPaletteShift = 6 };
   if (!IS_SCREEN_ENABLED(ppu, sub, layer))
@@ -533,8 +529,8 @@ static void PpuDrawBackground_4bpp_mosaic(Ppu *ppu, uint y, bool sub, uint layer
 
 // Draw a whole line of a 2bpp background layer into bgBuffers, with mosaic applied
 static void PpuDrawBackground_2bpp_mosaic(Ppu *ppu, int y, bool sub, uint layer, PpuZbufType zhi, PpuZbufType zlo) {
-#define GET_PIXEL(i) pixel = (bits) & 1 | (bits >> 7) & 2
-#define GET_PIXEL_HFLIP(i) pixel = (bits >> 7) & 1 | (bits >> 14) & 2
+#define GET_PIXEL() pixel = (bits) & 1 | (bits >> 7) & 2
+#define GET_PIXEL_HFLIP() pixel = (bits >> 7) & 1 | (bits >> 14) & 2
 #define READ_BITS(ta, tile) (addr = &ppu->vram[((ta) + (tile) * 8) & 0x7fff], addr[0])
   enum { kPaletteShift = 8 };
   if (!IS_SCREEN_ENABLED(ppu, sub, layer))
@@ -570,7 +566,7 @@ static void PpuDrawBackground_2bpp_mosaic(Ppu *ppu, int y, bool sub, uint layer,
       int ta = (tile & 0x8000) ? tileadr1 : tileadr0;
       PpuZbufType z = (tile & 0x2000) ? zhi : zlo;
       uint32 bits = READ_BITS(ta, tile & 0x3ff);
-      if (tile & 0x4000) bits >>= x, GET_PIXEL(0); else bits <<= x, GET_PIXEL_HFLIP(0);
+      if (tile & 0x4000) bits >>= x, GET_PIXEL(); else bits <<= x, GET_PIXEL_HFLIP();
       if (pixel) {
         pixel += (tile & 0x1c00) >> kPaletteShift;
         uint i = 0;
@@ -714,9 +710,6 @@ static void PpuDrawMode7Upsampled(Ppu *ppu, uint y) {
   uint32 xCenter = ((int16_t)(ppu->m7matrix[4] << 3)) >> 3, yCenter = ((int16_t)(ppu->m7matrix[5] << 3)) >> 3;
   uint32 clippedH = (((int16_t)(ppu->m7matrix[6] << 3)) >> 3) - xCenter;
   uint32 clippedV = (((int16_t)(ppu->m7matrix[7] << 3)) >> 3) - yCenter;
-  uint32 m0 = ppu->m7matrix[0];  // xpos increment per horiz movement
-  uint32 m3 = ppu->m7matrix[3];  // ypos increment per vert movement
-  uint8 *dst_start = &ppu->renderBuffer[(y - 1) * 4 * ppu->renderPitch], *dst_end, *dst = dst_start + ppu->extraLeftRight * 4 * 4;
   int32 m0v[4];
   if (*(uint32*)&ppu->mode7PerspectiveLow == 0) {
     m0v[0] = m0v[1] = m0v[2] = m0v[3] = ppu->m7matrix[0] << 12;
@@ -725,11 +718,15 @@ static void PpuDrawMode7Upsampled(Ppu *ppu, uint y) {
     for (int i = 0; i < 4; i++)
       m0v[i] = 4096.0f / FloatInterpolate((int)y + kInterpolateOffsets[i], 0, 223, ppu->mode7PerspectiveLow, ppu->mode7PerspectiveHigh);
   }
-
+  size_t pitch = ppu->renderPitch;
+  uint8 *render_buffer_ptr = &ppu->renderBuffer[(y - 1) * 4 * pitch];
+  uint8 *dst_start = render_buffer_ptr + (ppu->extraLeftRight - ppu->extraLeftCur) * 16;
+  size_t draw_width = 256 + ppu->extraLeftCur + ppu->extraRightCur;
+  uint8 *dst_curline = dst_start;
+  uint32 m1 = ppu->m7matrix[1] << 12;  // xpos increment per vert movement
+  uint32 m2 = ppu->m7matrix[2] << 12;  // ypos increment per horiz movement
   for (int j = 0; j < 4; j++) {
-    m0 = m3 = m0v[j];
-    uint32 m1 = ppu->m7matrix[1] << 12;  // xpos increment per vert movement
-    uint32 m2 = ppu->m7matrix[2] << 12;  // ypos increment per horiz movement
+    uint32 m0 = m0v[j], m3 = m0;
     uint32 xpos = m0 * clippedH + m1 * (clippedV + y) + (xCenter << 20), xcur;
     uint32 ypos = m2 * clippedH + m3 * (clippedV + y) + (yCenter << 20), ycur;
 
@@ -738,11 +735,17 @@ static void PpuDrawMode7Upsampled(Ppu *ppu, uint y) {
     ypos -= (m2 + m3) >> 1;
     xcur = (xpos << 2) + j * m1;
     ycur = (ypos << 2) + j * m3;
-    dst_end = dst + 4096;
+
+    xcur -= ppu->extraLeftCur * 4 * m0;
+    ycur -= ppu->extraLeftCur * 4 * m2;
+
+    uint8 *dst = dst_curline;
+    uint8 *dst_end = dst_curline + draw_width * 16;
 
 #define DRAW_PIXEL(mode) \
     tile = ppu->vram[(ycur >> 25 & 0x7f) * 128 + (xcur >> 25 & 0x7f)] & 0xff;  \
     pixel = ppu->vram[tile * 64 + (ycur >> 22 & 7) * 8 + (xcur >> 22 & 7)] >> 8; \
+    pixel = (xcur & 0x80000000) ? 0 : pixel; \
     *(uint32*)dst = (mode ? (ppu->colorMapRgb[pixel] & 0xfefefe) >> 1 : ppu->colorMapRgb[pixel]); \
     xcur += m0, ycur += m2, dst += 4;
 
@@ -760,18 +763,17 @@ static void PpuDrawMode7Upsampled(Ppu *ppu, uint y) {
         DRAW_PIXEL(1);
         DRAW_PIXEL(1);
       } while (dst != dst_end);
-
     }
 #undef DRAW_PIXEL
-    dst += (ppu->renderPitch - 4096);
+
+    dst_curline += pitch;
   }
 
   if (ppu->lineHasSprites) {
-    PpuZbufType *pixels = ppu->objBuffer.data;
-    size_t pitch = ppu->renderPitch;
-    uint8 *dst = dst_start + ppu->extraLeftRight * 16;
-    for (size_t i = 0; i < 256; i++, dst += 16) {
-      uint32 pixel = pixels[i + kPpuExtraLeftRight] & 0xff;
+    uint8 *dst = dst_start;
+    PpuZbufType *pixels = ppu->objBuffer.data + (kPpuExtraLeftRight - ppu->extraLeftCur);
+    for (size_t i = 0; i < draw_width; i++, dst += 16) {
+      uint32 pixel = pixels[i] & 0xff;
       if (pixel) {
         uint32 color = ppu->colorMapRgb[pixel];
         ((uint32 *)dst)[3] = ((uint32 *)dst)[2] = ((uint32 *)dst)[1] = ((uint32 *)dst)[0] = color;
@@ -784,15 +786,13 @@ static void PpuDrawMode7Upsampled(Ppu *ppu, uint y) {
 
   if (ppu->extraLeftRight - ppu->extraLeftCur != 0) {
     size_t n = 4 * sizeof(uint32) * (ppu->extraLeftRight - ppu->extraLeftCur);
-    size_t pitch = ppu->renderPitch;
     for(int i = 0; i < 4; i++)
-      memset(dst_start + pitch * i, 0, n);
+      memset(render_buffer_ptr + pitch * i, 0, n);
   }
   if (ppu->extraLeftRight - ppu->extraRightCur != 0) {
     size_t n = 4 * sizeof(uint32) * (ppu->extraLeftRight - ppu->extraRightCur);
-    size_t pitch = ppu->renderPitch;
     for (int i = 0; i < 4; i++)
-      memset(dst_start + pitch * i + (256 + ppu->extraLeftRight * 2 - (ppu->extraLeftRight - ppu->extraRightCur)) * 4 * sizeof(uint32), 0, n);
+      memset(render_buffer_ptr + pitch * i + (256 + ppu->extraLeftRight * 2 - (ppu->extraLeftRight - ppu->extraRightCur)) * 4 * sizeof(uint32), 0, n);
   }
 #undef DRAW_PIXEL
 }
@@ -841,10 +841,9 @@ static void PpuDrawBackgrounds(Ppu *ppu, int y, bool sub) {
 
 static NOINLINE void PpuDrawWholeLine(Ppu *ppu, uint y) {
   if (ppu->forcedBlank) {
-    uint8 *dst = &ppu->renderBuffer[(y - 1) * 2 * ppu->renderPitch];
-    size_t n = sizeof(uint32) * 2 * (256 + ppu->extraLeftRight * 2);
+    uint8 *dst = &ppu->renderBuffer[(y - 1) * ppu->renderPitch];
+    size_t n = sizeof(uint32) * (256 + ppu->extraLeftRight * 2);
     memset(dst, 0, n);
-    memset(dst + ppu->renderPitch, 0, n);
     return;
   }
 
@@ -882,9 +881,9 @@ static NOINLINE void PpuDrawWholeLine(Ppu *ppu, uint y) {
   uint32 cw_clip_math = ((cwin.bits & kCwBitsMod[ppu->clipMode]) ^ kCwBitsMod[ppu->clipMode + 4]) |
                         ((cwin.bits & kCwBitsMod[ppu->preventMathMode]) ^ kCwBitsMod[ppu->preventMathMode + 4]) << 8;
 
-  uint32 *dst = (uint32*)&ppu->renderBuffer[(y - 1) * 2 * ppu->renderPitch], *dst_org = dst;
+  uint32 *dst = (uint32*)&ppu->renderBuffer[(y - 1) * ppu->renderPitch], *dst_org = dst;
   
-  dst += 2 * (ppu->extraLeftRight - ppu->extraLeftCur);
+  dst += (ppu->extraLeftRight - ppu->extraLeftCur);
 
   uint32 windex = 0;
   do {
@@ -898,10 +897,10 @@ static NOINLINE void PpuDrawWholeLine(Ppu *ppu, uint y) {
       uint32 i = left;
       do {
         uint32 color = ppu->cgram[ppu->bgBuffers[0].data[i] & 0xff];
-        dst[1] = dst[0] = ppu->brightnessMult[color & clip_color_mask] << 16 |
-                          ppu->brightnessMult[(color >> 5) & clip_color_mask] << 8 |
-                          ppu->brightnessMult[(color >> 10) & clip_color_mask];
-      } while (dst += 2, ++i < right);
+        dst[0] = ppu->brightnessMult[color & clip_color_mask] << 16 |
+                 ppu->brightnessMult[(color >> 5) & clip_color_mask] << 8 |
+                 ppu->brightnessMult[(color >> 10) & clip_color_mask];
+      } while (dst++, ++i < right);
     } else {
       uint8 *half_color_map = ppu->halfColor ? ppu->brightnessMultHalf : ppu->brightnessMult;
       // Store this in locals
@@ -935,20 +934,17 @@ static NOINLINE void PpuDrawWholeLine(Ppu *ppu, uint y) {
             b += b2;
           }
         }
-        dst[0] = dst[1] = color_map[b] | color_map[g] << 8 | color_map[r] << 16;
-      } while (dst += 2, ++i < right);
+        dst[0] = color_map[b] | color_map[g] << 8 | color_map[r] << 16;
+      } while (dst++, ++i < right);
     }
   } while (cw_clip_math >>= 1, ++windex < cwin.nr);
 
   // Clear out stuff on the sides.
   if (ppu->extraLeftRight - ppu->extraLeftCur != 0)
-    memset(dst_org, 0, 2 * sizeof(uint32) * (ppu->extraLeftRight - ppu->extraLeftCur));
+    memset(dst_org, 0, sizeof(uint32) * (ppu->extraLeftRight - ppu->extraLeftCur));
   if (ppu->extraLeftRight - ppu->extraRightCur != 0)
-    memset(dst_org + 2 * (256 + ppu->extraLeftRight * 2 - (ppu->extraLeftRight - ppu->extraRightCur)), 0,
-        2 * sizeof(uint32) * (ppu->extraLeftRight - ppu->extraRightCur));
-
-  // Duplicate one line
-  memcpy((uint8*)dst_org + ppu->renderPitch, dst_org, (ppu->extraLeftRight * 2 + 256) * 2 * sizeof(uint32));
+    memset(dst_org + (256 + ppu->extraLeftRight * 2 - (ppu->extraLeftRight - ppu->extraRightCur)), 0,
+        sizeof(uint32) * (ppu->extraLeftRight - ppu->extraRightCur));
 }
 
 static inline void ppu_handlePixel(Ppu* ppu, int x, int y) {
@@ -1004,15 +1000,11 @@ static inline void ppu_handlePixel(Ppu* ppu, int x, int y) {
     }
   }
   int row = y - 1;
-  uint8 *pixelBuffer = (uint8*) &ppu->renderBuffer[row * 2 * ppu->renderPitch + (x + ppu->extraLeftRight) * 8];
-  pixelBuffer[0] = ((b2 << 3) | (b2 >> 2)) * ppu->brightness / 15;
-  pixelBuffer[1] = ((g2 << 3) | (g2 >> 2)) * ppu->brightness / 15;
-  pixelBuffer[2] = ((r2 << 3) | (r2 >> 2)) * ppu->brightness / 15;
+  uint8 *pixelBuffer = (uint8*) &ppu->renderBuffer[row * ppu->renderPitch + (x + ppu->extraLeftRight) * 4];
+  pixelBuffer[0] = ((b << 3) | (b >> 2)) * ppu->brightness / 15;
+  pixelBuffer[1] = ((g << 3) | (g >> 2)) * ppu->brightness / 15;
+  pixelBuffer[2] = ((r << 3) | (r >> 2)) * ppu->brightness / 15;
   pixelBuffer[3] = 0;
-  pixelBuffer[4] = ((b << 3) | (b >> 2)) * ppu->brightness / 15;
-  pixelBuffer[5] = ((g << 3) | (g >> 2)) * ppu->brightness / 15;
-  pixelBuffer[6] = ((r << 3) | (r >> 2)) * ppu->brightness / 15;
-  pixelBuffer[7] = 0;
 }
 
 static const int bitDepthsPerMode[10][4] = {
