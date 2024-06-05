@@ -1,3 +1,4 @@
+#ifndef __vita__
 #include "third_party/gl_core/gl_core_3_1.h"
 #include <SDL.h>
 #include <stdio.h>
@@ -263,4 +264,4 @@ void OpenGLRenderer_Create(struct RendererFuncs *funcs, bool use_opengl_es) {
   }
   *funcs = kOpenGLRendererFuncs;
 }
-
+#endif

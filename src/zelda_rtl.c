@@ -60,56 +60,6 @@ static const uint8 kMapModeHdma1[7] = {0xf0, AT_WORD(0xdee7), 0xf0, AT_WORD(0xdf
 static const uint8 kAttractIndirectHdmaTab[7] = {0xf0, AT_WORD(0x1b00), 0xf0, AT_WORD(0x1be0), 0};
 static const uint8 kHdmaTableForPrayingScene[7] = {0xf8, AT_WORD(0x1b00), 0xf8, AT_WORD(0x1bf0), 0};
 
-// Maintain a queue cause the snes and audio callback are not in sync.
-struct ApuWriteEnt {
-  uint8 ports[4];
-};
-static struct ApuWriteEnt g_apu_write_ents[16], g_apu_write;
-static uint8 g_apu_write_ent_pos, g_apu_write_count, g_apu_total_write;
-void zelda_apu_write(uint32_t adr, uint8_t val) {
-  g_apu_write.ports[adr & 0x3] = val;
-}
-
-void ZeldaPushApuState() {
-  g_apu_write_ents[g_apu_write_ent_pos++ & 0xf] = g_apu_write;
-  if (g_apu_write_count < 16)
-    g_apu_write_count++;
-  g_apu_total_write++;
-}
-
-void ZeldaPopApuState() {
-  if (g_apu_write_count != 0)
-    memcpy(g_zenv.player->input_ports, &g_apu_write_ents[(g_apu_write_ent_pos - g_apu_write_count--) & 0xf], 4);
-}
-
-void ZeldaDiscardUnusedAudioFrames() {
-  if (g_apu_write_count != 0 && memcmp(g_zenv.player->input_ports, &g_apu_write_ents[(g_apu_write_ent_pos - g_apu_write_count) & 0xf], 4) == 0) {
-    if (g_apu_total_write >= 16) {
-      g_apu_total_write = 14;
-      g_apu_write_count--;
-    }
-  } else {
-    g_apu_total_write = 0;
-  }
-}
-
-void ZeldaResetApuQueue() {
-  g_apu_write_ent_pos = g_apu_total_write = g_apu_write_count = 0;
-}
-
-
-inline uint8_t zelda_read_apui00() {
-  // This needs to be here because the ancilla code reads
-  // from the apu and we don't want to make the core code
-  // dependent on the apu timings, so relocated this value
-  // to 0x648.
-  return g_ram[kRam_APUI00];
-}
-
-inline uint8_t zelda_apu_read(uint32_t adr) {
-  return g_zenv.player->port_to_snes[adr & 0x3];
-}
-
 inline void zelda_ppu_write(uint32_t adr, uint8_t val) {
   assert(adr >= INIDISP && adr <= STAT78);
   ppu_write(g_zenv.ppu, (uint8)adr, val);

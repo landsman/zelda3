@@ -1,10 +1,10 @@
 TARGET		:= zelda3
 TITLE	:= ZELDASNES
-SOURCES	:= ../.. ../../snes
+SOURCES	:= ../.. ../../src ../../snes
 
 LIBS = -lSDL2_mixer -lSDL2_image -lSDL2 -lpng -lwebp -ljpeg -lmikmod -lz -lm -lvita2d \
   -lstdc++ -lsndfile -lvorbis -lvorbisenc -lvorbisfile -logg -lcurl -lssl -lSceIme_stub \
-  -lcrypto -lFLAC -lopenal -limgui -lvitaGL -lvitashark -lSceShaccCgExt -lmathneon \
+  -lcrypto -lFLAC -lopenal -limgui -lvitaGL -lvitashark -lSceShaccCgExt -lmathneon -lopus \
   -lmpg123 -ltaihen_stub -lkubridge_stub -lSceAppMgr_stub -lSceAppUtil_stub -lSceAudio_stub \
   -lSceAudioIn_stub -lSceCtrl_stub -lSceCommonDialog_stub -lSceDisplay_stub -lSceFios2_stub \
   -lSceGxm_stub -lSceLibcBridge_stub -lSceShaccCg_stub -lSceSysmodule_stub -lScePower_stub \
@@ -19,7 +19,7 @@ PREFIX  = arm-vita-eabi
 CC      = $(PREFIX)-gcc
 CXX      = $(PREFIX)-g++
 CFLAGS  = -g -Wl,-q,--wrap,fopen,--wrap,mkdir -O3 -ffast-math -DSTBI_NO_THREAD_LOCALS \
-	-I$(VITASDK)/$(PREFIX)/include/SDL2 -fno-tree-vectorize -DNDEBUG
+	-I$(VITASDK)/$(PREFIX)/include/SDL2 -fno-tree-vectorize -DNDEBUG -I../..
 CXXFLAGS  = $(CFLAGS) -fno-exceptions -std=gnu++11 -fpermissive
 ASFLAGS = $(CFLAGS)
 

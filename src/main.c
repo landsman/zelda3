@@ -16,7 +16,6 @@
 #ifdef __vita__
 #include <vitasdk.h>
 #include <vita2d.h>
-vita2d_texture *tex_buffer = NULL;
 #endif
 
 #include "snes/ppu.h"
@@ -295,6 +294,7 @@ static void SdlRenderer_EndDraw() {
   SDL_RenderPresent(g_renderer); // vsyncs to 60 FPS?
 }
 
+#ifndef __vita__
 static const struct RendererFuncs kSdlRendererFuncs  = {
   &SdlRenderer_Init,
   &SdlRenderer_Destroy,
@@ -303,6 +303,52 @@ static const struct RendererFuncs kSdlRendererFuncs  = {
 };
 
 void OpenGLRenderer_Create(struct RendererFuncs *funcs, bool use_opengl_es);
+#else
+// State for vita2d renderer
+static SDL_Renderer *g_renderer;
+static SDL_Texture *g_texture;
+static SDL_Rect g_sdl_renderer_rect;
+
+static vita2d_texture *tex_buffers[4];
+static vita2d_texture *tex_buffer = NULL;
+static int tex_idx = 0;
+
+static bool Vita2DRenderer_Init(struct SDL_Window *window) {
+  vita2d_init();
+  vita2d_texture_set_alloc_memblock_type(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW);
+  for (int i = 0; i < 4; i++) {
+    tex_buffers[i] = vita2d_create_empty_texture_format(g_snes_width, g_snes_height, SCE_GXM_TEXTURE_FORMAT_X8U8U8U8_1RGB);
+    if (g_config.bilinear_filtering)
+      vita2d_texture_set_filters(tex_buffers[i], SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
+  }
+  return true;
+}
+
+static void Vita2DRenderer_Destroy(void) {
+}
+
+static void Vita2DRenderer_BeginDraw(int width, int height, uint8 **pixels, int *pitch) {
+  tex_buffer = tex_buffers[tex_idx];
+  *pixels = vita2d_texture_get_datap(tex_buffer);
+  *pitch = vita2d_texture_get_stride(tex_buffer);
+  tex_idx = (tex_idx + 1) % 4;
+}
+
+static void Vita2DRenderer_EndDraw(void) {
+  vita2d_start_drawing();
+  vita2d_draw_texture_scale(tex_buffer, 0, 0, 960.0f / (float)g_snes_width, 544.0f / (float)g_snes_height);
+  vita2d_end_drawing();
+  //vita2d_wait_rendering_done();
+  vita2d_swap_buffers();
+}
+
+static const struct RendererFuncs kVita2DRendererFuncs = {
+  &Vita2DRenderer_Init,
+  &Vita2DRenderer_Destroy,
+  &Vita2DRenderer_BeginDraw,
+  &Vita2DRenderer_EndDraw,
+};
+#endif
 
 #undef main
 int main(int argc, char** argv) {
@@ -362,11 +408,6 @@ int main(int argc, char** argv) {
 
   // set up SDL
 #ifdef __vita__
-  vita2d_init();
-  vita2d_texture_set_alloc_memblock_type(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW);
-  tex_buffer = vita2d_create_empty_texture_format(g_snes_width * 2, g_snes_height * 2, SCE_GXM_TEXTURE_FORMAT_X8U8U8U8_1RGB);
-  if (g_config.bilinear_filtering)
-    vita2d_texture_set_filters(tex_buffer, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
   if(SDL_Init(SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
 #else
   if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
@@ -378,7 +419,7 @@ int main(int argc, char** argv) {
   bool custom_size  = g_config.window_width != 0 && g_config.window_height != 0;
   int window_width  = custom_size ? g_config.window_width  : g_current_window_scale * g_snes_width;
   int window_height = custom_size ? g_config.window_height : g_current_window_scale * g_snes_height;
-
+#ifndef __vita__
   if (g_config.output_method == kOutputMethod_OpenGL ||
       g_config.output_method == kOutputMethod_OpenGL_ES) {
     g_win_flags |= SDL_WINDOW_OPENGL;
@@ -386,6 +427,9 @@ int main(int argc, char** argv) {
   } else {
     g_renderer_funcs = kSdlRendererFuncs;
   }
+#else
+    g_renderer_funcs = kVita2DRendererFuncs;
+#endif
 
   SDL_Window* window = SDL_CreateWindow(kWindowTitle, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, window_width, window_height, g_win_flags);
   if(window == NULL) {
