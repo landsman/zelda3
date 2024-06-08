@@ -336,7 +336,10 @@ static void Vita2DRenderer_BeginDraw(int width, int height, uint8 **pixels, int 
 
 static void Vita2DRenderer_EndDraw(void) {
   vita2d_start_drawing();
-  vita2d_draw_texture_scale(tex_buffer, 0, 0, 960.0f / (float)g_snes_width, 544.0f / (float)g_snes_height);
+  if (g_config.ignore_aspect_ratio || g_config.extended_aspect_ratio)
+	vita2d_draw_texture_scale(tex_buffer, 0, 0, 960.0f / (float)g_snes_width, 544.0f / (float)g_snes_height);
+  else 
+	vita2d_draw_texture_scale(tex_buffer, 170, 0, 2.42857f, 2.42857f);
   vita2d_end_drawing();
   //vita2d_wait_rendering_done();
   vita2d_swap_buffers();
