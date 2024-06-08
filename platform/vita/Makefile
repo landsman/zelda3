@@ -31,6 +31,7 @@ $(TARGET).vpk: $(TARGET).velf
 	vita-pack-vpk -s param.sfo -b eboot.bin \
 		--add icon0.png=sce_sys/icon0.png \
 		--add bg.png=sce_sys/livearea/contents/bg.png \
+		--add pic0.png=sce_sys/pic0.png \
 		--add startup.png=sce_sys/livearea/contents/startup.png \
 		--add template.xml=sce_sys/livearea/contents/template.xml \
 		$(TARGET).vpk
